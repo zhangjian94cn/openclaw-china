@@ -227,7 +227,7 @@ export async function enrichInboundContentWithMedia(params: {
         if (saved.ok && saved.path) {
           const finalPath = await finalizeInboundMedia(account, saved.path);
           mediaPaths.push(finalPath);
-          return makeResult(`[image] saved:${finalPath}`);
+          return makeResult(`[Image: source: ${finalPath}]`);
         }
         // 如果失败，回退到原始文本
         return makeResult(`[image] (save failed) ${saved.error ?? ""}`.trim());
@@ -241,10 +241,9 @@ export async function enrichInboundContentWithMedia(params: {
           if (saved.ok && saved.path) {
             const finalPath = await finalizeInboundMedia(account, saved.path);
             mediaPaths.push(finalPath);
-            return makeResult(`[image] saved:${finalPath}`);
+            return makeResult(`[Image: source: ${finalPath}]`);
           }
-        } catch {
-          // 忽略
+        } catch (urlErr) {
         }
       }
 
@@ -379,7 +378,7 @@ export async function enrichInboundContentWithMedia(params: {
               if (saved.ok && saved.path) {
                 const finalPath = await finalizeInboundMedia(account, saved.path);
                 mediaPaths.push(finalPath);
-                parts.push(`[image] saved:${finalPath}`);
+                parts.push(`[Image: source: ${finalPath}]`);
               } else {
                 const url = String(typed.image?.url ?? "").trim();
                 parts.push(url ? `[image] ${url}` : "[image]");
@@ -499,9 +498,9 @@ export async function dispatchWecomAppMessage(params: {
 
   const previousTimestamp = channel.session?.readSessionUpdatedAt
     ? channel.session.readSessionUpdatedAt({
-        storePath,
-        sessionKey: route.sessionKey,
-      }) ?? undefined
+      storePath,
+      sessionKey: route.sessionKey,
+    }) ?? undefined
     : undefined;
 
   const envelopeOptions = channel.reply?.resolveEnvelopeFormatOptions
@@ -510,12 +509,12 @@ export async function dispatchWecomAppMessage(params: {
 
   const body = channel.reply?.formatAgentEnvelope
     ? channel.reply.formatAgentEnvelope({
-        channel: "WeCom App",
-        from: fromLabel,
-        previousTimestamp,
-        envelope: envelopeOptions,
-        body: rawBody,
-      })
+      channel: "WeCom App",
+      from: fromLabel,
+      previousTimestamp,
+      envelope: envelopeOptions,
+      body: rawBody,
+    })
     : rawBody;
 
   const msgid = msg.msgid ?? msg.MsgId ?? undefined;
@@ -528,44 +527,44 @@ export async function dispatchWecomAppMessage(params: {
 
   const ctxPayload = (channel.reply?.finalizeInboundContext
     ? channel.reply.finalizeInboundContext({
-        Body: body,
-        RawBody: rawBody,
-        CommandBody: rawBody,
-        From: from,
-        To: to,
-        SessionKey: route.sessionKey,
-        AccountId: route.accountId ?? account.accountId,
-        ChatType: "direct",
-        ConversationLabel: fromLabel,
-        SenderName: senderId,
-        SenderId: senderId,
-        Provider: "wecom-app",
-        Surface: "wecom-app",
-        MessageSid: msgid,
-        OriginatingChannel: "wecom-app",
-        OriginatingTo: to,
-      })
+      Body: body,
+      RawBody: rawBody,
+      CommandBody: rawBody,
+      From: from,
+      To: to,
+      SessionKey: route.sessionKey,
+      AccountId: route.accountId ?? account.accountId,
+      ChatType: "direct",
+      ConversationLabel: fromLabel,
+      SenderName: senderId,
+      SenderId: senderId,
+      Provider: "wecom-app",
+      Surface: "wecom-app",
+      MessageSid: msgid,
+      OriginatingChannel: "wecom-app",
+      OriginatingTo: to,
+    })
     : {
-        Body: body,
-        RawBody: rawBody,
-        CommandBody: rawBody,
-        From: from,
-        To: to,
-        SessionKey: route.sessionKey,
-        AccountId: route.accountId ?? account.accountId,
-        ChatType: "direct",
-        ConversationLabel: fromLabel,
-        SenderName: senderId,
-        SenderId: senderId,
-        Provider: "wecom-app",
-        Surface: "wecom-app",
-        MessageSid: msgid,
-        OriginatingChannel: "wecom-app",
-        OriginatingTo: to,
-      }) as {
-    SessionKey?: string;
-    [key: string]: unknown;
-  };
+      Body: body,
+      RawBody: rawBody,
+      CommandBody: rawBody,
+      From: from,
+      To: to,
+      SessionKey: route.sessionKey,
+      AccountId: route.accountId ?? account.accountId,
+      ChatType: "direct",
+      ConversationLabel: fromLabel,
+      SenderName: senderId,
+      SenderId: senderId,
+      Provider: "wecom-app",
+      Surface: "wecom-app",
+      MessageSid: msgid,
+      OriginatingChannel: "wecom-app",
+      OriginatingTo: to,
+    }) as {
+      SessionKey?: string;
+      [key: string]: unknown;
+    };
 
   // 兜底当前会话目标，确保 message 工具在未显式指定 to 时可回到当前会话。
   const ctxTo =
