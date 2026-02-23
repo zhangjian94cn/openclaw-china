@@ -12,6 +12,43 @@ import {
 import { mkdir, writeFile, unlink, rename, copyFile, readdir, stat } from "node:fs/promises";
 import { basename, join, extname } from "node:path";
 import { tmpdir } from "node:os";
+// ─────────────────────────────────────────────────────────────────────────────
+// HTTP 代理支持（用于 Docker 环境中无法直接访问中国 API 的场景）
+// 通过 HTTPS_PROXY / HTTP_PROXY 环境变量配置，使用 undici ProxyAgent
+// ─────────────────────────────────────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _proxyAgent: any = undefined;
+let _proxyAgentInitialized = false;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getProxyDispatcher(): any {
+  if (_proxyAgentInitialized) return _proxyAgent;
+  _proxyAgentInitialized = true;
+  const proxyUrl = process.env.HTTPS_PROXY ?? process.env.HTTP_PROXY ?? process.env.https_proxy ?? process.env.http_proxy;
+  if (proxyUrl) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { ProxyAgent } = require("undici") as { ProxyAgent: new (opts: string) => unknown };
+      _proxyAgent = new ProxyAgent(proxyUrl);
+    } catch {
+      // undici not available, ignore
+    }
+  }
+  return _proxyAgent;
+}
+
+type FetchOptions = Parameters<typeof fetch>[1];
+function proxyFetch(url: string | URL | Request, opts?: FetchOptions): Promise<Response> {
+  const dispatcher = getProxyDispatcher();
+  if (dispatcher) {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    return fetch(url, { ...(opts ?? {}), dispatcher } as FetchOptions);
+  }
+  return fetch(url, opts);
+}
+
+
 
 /** 下载超时时间（毫秒） */
 const DOWNLOAD_TIMEOUT = 120_000;
@@ -296,7 +333,7 @@ export async function getAccessToken(account: ResolvedWecomAppAccount): Promise<
     account,
     `/cgi-bin/gettoken?corpid=${encodeURIComponent(account.corpId)}&corpsecret=${encodeURIComponent(account.corpSecret)}`
   );
-  const resp = await fetch(url);
+  const resp = await proxyFetch(url);
   const data = (await resp.json()) as { errcode?: number; errmsg?: string; access_token?: string };
 
   if (data.errcode !== undefined && data.errcode !== 0) {
@@ -444,7 +481,7 @@ export async function downloadWecomMediaToFile(
 
   try {
     if (isHttp) {
-      resp = await fetch(raw, { signal: controller.signal });
+      resp = await proxyFetch(raw, { signal: controller.signal });
       if (!resp.ok) {
         return { ok: false, error: `download failed: HTTP ${resp.status}` };
       }
@@ -462,7 +499,7 @@ export async function downloadWecomMediaToFile(
         `/cgi-bin/media/get?access_token=${encodeURIComponent(token)}&media_id=${encodeURIComponent(safeMediaId)}`
       );
 
-      resp = await fetch(url, { signal: controller.signal });
+      resp = await proxyFetch(url, { signal: controller.signal });
       if (!resp.ok) {
         return { ok: false, error: `media/get failed: HTTP ${resp.status}` };
       }
@@ -583,7 +620,7 @@ export async function sendWecomAppMessage(
   // 注意：企业微信 API 要求 access_token 作为查询参数传递。
   // 这可能会在服务器日志、浏览器历史和引用头中暴露令牌。
   // 确保任何记录此 URL 的日志都隐藏 access_token 参数。
-  const resp = await fetch(
+  const resp = await proxyFetch(
     buildWecomApiUrl(account, `/cgi-bin/message/send?access_token=${encodeURIComponent(token)}`),
     {
       method: "POST",
@@ -630,7 +667,7 @@ export async function sendWecomAppMarkdownMessage(
     touser: target.userId,
   };
 
-  const resp = await fetch(
+  const resp = await proxyFetch(
     buildWecomApiUrl(account, `/cgi-bin/message/send?access_token=${encodeURIComponent(token)}`),
     {
       method: "POST",
@@ -692,7 +729,7 @@ export async function downloadImage(imageUrl: string): Promise<{ buffer: Buffer;
   if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
     // 网络下载
     console.log(`[wecom-app] 使用 HTTP fetch 下载: ${imageUrl}`);
-    const resp = await fetch(imageUrl);
+    const resp = await proxyFetch(imageUrl);
     if (!resp.ok) {
       throw new Error(`Download image failed: HTTP ${resp.status}`);
     }
@@ -744,7 +781,7 @@ export async function uploadImageMedia(
   const footer = Buffer.from(`\r\n--${boundary}--\r\n`);
   const body = Buffer.concat([header, imageBuffer, footer]);
 
-  const resp = await fetch(
+  const resp = await proxyFetch(
     buildWecomApiUrl(account, `/cgi-bin/media/upload?access_token=${encodeURIComponent(token)}&type=image`),
     {
       method: "POST",
@@ -796,7 +833,7 @@ export async function sendWecomAppImageMessage(
     touser: target.userId,
   };
 
-  const resp = await fetch(
+  const resp = await proxyFetch(
     buildWecomApiUrl(account, `/cgi-bin/message/send?access_token=${encodeURIComponent(token)}`),
     {
       method: "POST",
@@ -921,7 +958,7 @@ export async function uploadVoiceMedia(
   const footer = Buffer.from(`\r\n--${boundary}--\r\n`);
   const body = Buffer.concat([header, voiceBuffer, footer]);
 
-  const resp = await fetch(
+  const resp = await proxyFetch(
     buildWecomApiUrl(account, `/cgi-bin/media/upload?access_token=${encodeURIComponent(token)}&type=voice`),
     {
       method: "POST",
@@ -973,7 +1010,7 @@ export async function sendWecomAppVoiceMessage(
     touser: target.userId,
   };
 
-  const resp = await fetch(
+  const resp = await proxyFetch(
     buildWecomApiUrl(account, `/cgi-bin/message/send?access_token=${encodeURIComponent(token)}`),
     {
       method: "POST",
@@ -1005,7 +1042,7 @@ export async function downloadVoice(voiceUrl: string): Promise<{ buffer: Buffer;
   if (voiceUrl.startsWith('http://') || voiceUrl.startsWith('https://')) {
     // 网络下载
     console.log(`[wecom-app] 使用 HTTP fetch 下载语音: ${voiceUrl}`);
-    const resp = await fetch(voiceUrl);
+    const resp = await proxyFetch(voiceUrl);
     if (!resp.ok) {
       throw new Error(`Download voice failed: HTTP ${resp.status}`);
     }
@@ -1122,7 +1159,7 @@ export async function uploadMedia(
   const footer = Buffer.from(`\r\n--${boundary}--\r\n`);
   const body = Buffer.concat([header, buffer, footer]);
 
-  const resp = await fetch(
+  const resp = await proxyFetch(
     buildWecomApiUrl(account, `/cgi-bin/media/upload?access_token=${encodeURIComponent(token)}&type=${type}`),
     {
       method: "POST",
@@ -1175,7 +1212,7 @@ export async function sendWecomAppFileMessage(
     touser: target.userId,
   };
 
-  const resp = await fetch(
+  const resp = await proxyFetch(
     buildWecomApiUrl(account, `/cgi-bin/message/send?access_token=${encodeURIComponent(token)}`),
     {
       method: "POST",
@@ -1257,7 +1294,7 @@ export async function downloadFile(fileUrl: string): Promise<{ buffer: Buffer; c
   if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
     // 网络下载
     console.log(`[wecom-app] 使用 HTTP fetch 下载文件: ${fileUrl}`);
-    const resp = await fetch(fileUrl);
+    const resp = await proxyFetch(fileUrl);
     if (!resp.ok) {
       throw new Error(`Download file failed: HTTP ${resp.status}`);
     }

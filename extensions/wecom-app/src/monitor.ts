@@ -709,6 +709,7 @@ export async function handleWecomAppWebhookRequest(req: IncomingMessage, res: Se
   });
 
   const core = tryGetWecomAppRuntime();
+  if (!core) console.warn(`[wecom-app] runtime not set, message dropped (msgtype=${msgtype})`);
 
   // 解析发送者信息用于后续主动发送
   const senderId = msg.from?.userid?.trim() ?? (msg as { FromUserName?: string }).FromUserName?.trim();
