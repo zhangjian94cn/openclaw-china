@@ -668,18 +668,22 @@ export const wecomAppPlugin = {
         lastStartAt: Date.now(),
       });
 
+      // 持续阻塞直到 OpenClaw 发出停止信号（abortSignal.abort()）。
+      // 这是必要的：wecom-app 是 HTTPS 回调模式，startAccount 只注册 webhook 后
+      // 没有长连接可以维持，但如果函数直接返回，health-monitor 会误判为"stopped"
+      // 并不断重启，最终触发重启次数限制，导致插件真正停止工作。
+      // 参考 DingTalk/Feishu 插件的同名模式（monitorDingtalkProvider / startFeishuGateway）。
       try {
-        await new Promise<void>((resolve) => {
-          if (ctx.abortSignal?.aborted) {
-            resolve();
-            return;
+        if (ctx.abortSignal) {
+          if (!ctx.abortSignal.aborted) {
+            await new Promise<void>((resolve) => {
+              ctx.abortSignal!.addEventListener("abort", () => resolve(), { once: true });
+            });
           }
-          if (!ctx.abortSignal) {
-            // Keep webhook mode alive to avoid immediate exit/restart loops.
-            return;
-          }
-          ctx.abortSignal.addEventListener("abort", () => resolve(), { once: true });
-        });
+        } else {
+          // 兼容无 abortSignal 环境：永久 pending（进程退出时自动释放）
+          await new Promise<void>(() => { });
+        }
       } finally {
         const current = unregisterHooks.get(ctx.accountId);
         if (current === unregister) {
